@@ -3,6 +3,7 @@
 #include <getopt.h>
 
 #include <atomic>
+#include <vector>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -37,6 +38,7 @@ extern bool g_bGrabbed;
 extern float g_mouseSensitivity;
 extern const char *g_sOutputName;
 extern bool g_bExternalForced;
+extern std::vector<uint32_t> g_customRefreshRates;
 
 enum class GamescopeUpscaleFilter : uint32_t
 {
