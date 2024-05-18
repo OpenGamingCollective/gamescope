@@ -1220,6 +1220,55 @@ static void gamescope_control_take_screenshot( struct wl_client *client, struct 
 	} );
 }
 
+static void gamescope_control_rotate_display( struct wl_client *client, struct wl_resource *resource, uint32_t orientation, uint32_t target_type )
+{
+	bool isRotated = false;
+	if (target_type == GAMESCOPE_CONTROL_DISPLAY_TARGET_TYPE_INTERNAL )
+	{
+		switch (orientation) {
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_NORMAL:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_ORIENTATION_0;
+			break;
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_LEFT:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_ORIENTATION_90;
+			isRotated = true;
+			break;
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_RIGHT:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_ORIENTATION_270;
+			isRotated = true;
+			break;
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_UPSIDEDOWN:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_ORIENTATION_180;
+			break;
+		default:
+			wl_log.errorf("Invalid target orientation selected");
+		}
+	}
+	else if (target_type == GAMESCOPE_CONTROL_DISPLAY_TARGET_TYPE_EXTERNAL )
+	{
+		switch (orientation) {
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_NORMAL:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_EXTERNAL_ORIENTATION_0;
+			break;
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_LEFT:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_EXTERNAL_ORIENTATION_90;
+			isRotated = true;
+			break;
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_RIGHT:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_EXTERNAL_ORIENTATION_270;
+			isRotated = true;
+			break;
+		case GAMESCOPE_CONTROL_DISPLAY_ROTATION_FLAG_UPSIDEDOWN:
+			//m_ChosenOrientation = GAMESCOPE_PANEL_EXTERNAL_ORIENTATION_180;
+			break;
+		default:
+			wl_log.errorf("Invalid target orientation selected");
+		}
+	}
+	//drm_set_orientation(&g_DRM, isRotated);
+	//g_DRM.out_of_date = 2;
+}
+
 void drm_sleep_screen( gamescope::GamescopeScreenType eType, bool bSleep );
 
 static void gamescope_control_display_sleep( struct wl_client *client, struct wl_resource *resource, uint32_t display_type_flags, uint32_t flags )
@@ -1402,6 +1451,7 @@ static const struct gamescope_control_interface gamescope_control_impl = {
 	.unset_look = gamescope_control_unset_look,
 	.request_app_performance_stats = gamescope_control_request_app_performance_stats,
 	.set_keyboard_layout = gamescope_control_set_keyboard_layout,
+	.rotate_display = gamescope_control_rotate_display,
 };
 
 static uint32_t get_conn_display_info_flags()
