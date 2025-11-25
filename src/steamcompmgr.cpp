@@ -2621,8 +2621,7 @@ static void paint_pipewire()
 	{
 		vulkan_wait( *oPipewireSequence, true );
 
-		push_pipewire_buffer( s_pPipewireBuffer );
-		s_pPipewireBuffer = nullptr;
+		s_pPipewireBuffer = push_pipewire_buffer( s_pPipewireBuffer );
 	}
 }
 #endif
@@ -9601,7 +9600,7 @@ steamcompmgr_main(int argc, char **argv)
 
 #if HAVE_PIPEWIRE
 		// Drive on vblank, not the timer: under VRR the timer starves (page flips re-arm it).
-		if ( vblank && pipewire_is_streaming() )
+		if ( vblank )
 			paint_pipewire();
 #endif
 
