@@ -454,6 +454,7 @@ bool g_bVRRInUse_CachedValue = false;
 bool g_bSupportsHDR_CachedValue = false;
 bool g_bForceHDR10OutputDebug = false;
 gamescope::ConVar<bool> cv_hdr_enabled{ "hdr_enabled", false, "Whether or not HDR is enabled if it is available." };
+gamescope::ConVar<bool> cv_hdr_content_driven{ "hdr_content_driven", false, "Only drive a panel in HDR while an HDR app is running." };
 bool g_bHDRItmEnable = false;
 int g_nCurrentRefreshRate_CachedValue = 0;
 
@@ -889,6 +890,7 @@ uint32_t		currentOutputWidth, currentOutputHeight;
 int 			currentOutputRefresh;
 uint32_t		currentOutputRotation = 0;
 bool			currentHDROutput = false;
+bool			currentHDRCapable = false;
 bool			currentHDRForce = false;
 
 std::vector< uint32_t > vecFocuscontrolAppIDs;
@@ -8974,7 +8976,37 @@ steamcompmgr_main(int argc, char **argv)
 
 		g_uCompositeDebug = cv_composite_debug;
 
-		g_bOutputHDREnabled = (g_bSupportsHDR_CachedValue || g_bForceHDR10OutputDebug) && cv_hdr_enabled;
+		// Capability is advertised to clients regardless of the live "active"
+		// state below, so games can request HDR while the panel is idling in SDR.
+		const bool bOutputHDRCapable = (g_bSupportsHDR_CachedValue || g_bForceHDR10OutputDebug) && cv_hdr_enabled;
+
+		{
+			gamescope::IBackendConnector *pConn = GetBackend()->GetCurrentConnector();
+			const bool bContentDriven = bOutputHDRCapable && !g_bForceHDR10OutputDebug &&
+				( cv_hdr_content_driven ||
+				  ( pConn && pConn->GetHDRInfo().bContentDrivenHDR ) );
+
+			bool bOutputHDRActive = bOutputHDRCapable;
+			if ( bContentDriven )
+			{
+				// Track any live window, not just the focused one, so browsing the
+				// Steam UI over a running HDR game does not bounce the panel through
+				// a modeset on every focus change.
+				bOutputHDRActive = false;
+				for ( steamcompmgr_win_t *pWin : GetGlobalPossibleFocusWindows() )
+				{
+					commit_t *pCommit = get_window_last_done_commit_peek( pWin );
+					if ( pCommit && ColorspaceIsHDR( pCommit->colorspace() ) )
+					{
+						bOutputHDRActive = true;
+						break;
+					}
+				}
+			}
+			if ( bOutputHDRActive != g_bOutputHDREnabled )
+				xwm_log.infof( "HDR output %s%s", bOutputHDRActive ? "enabled" : "disabled", bContentDriven ? " (hdr_content_driven)" : "" );
+			g_bOutputHDREnabled = bOutputHDRActive;
+		}
 
 		// Pick our width/height for this potential frame, regardless of how it might change later
 		// At some point we might even add proper locking so we get real updates atomically instead
@@ -8984,6 +9016,7 @@ steamcompmgr_main(int argc, char **argv)
 			 currentOutputRefresh != g_nOutputRefresh ||
 			 currentOutputRotation != g_uOutputRotation ||
 			 currentHDROutput != g_bOutputHDREnabled ||
+			 currentHDRCapable != bOutputHDRCapable ||
 			 currentHDRForce != g_bForceHDRSupportDebug )
 		{
 			if ( g_nXWaylandCount > 1 )
@@ -9013,7 +9046,7 @@ steamcompmgr_main(int argc, char **argv)
 				gamescope_xwayland_server_t *server = NULL;
 				for (size_t i = 0; (server = wlserver_get_xwayland_server(i)); i++)
 				{
-					uint32_t hdr_value = ( g_bOutputHDREnabled || g_bForceHDRSupportDebug ) ? 1 : 0;
+					uint32_t hdr_value = ( bOutputHDRCapable || g_bForceHDRSupportDebug ) ? 1 : 0;
 					XChangeProperty(server->ctx->dpy, server->ctx->root, server->ctx->atoms.gamescopeHDROutputFeedback, XA_CARDINAL, 32, PropModeReplace,
 						(unsigned char *)&hdr_value, 1 );
 
@@ -9035,6 +9068,7 @@ steamcompmgr_main(int argc, char **argv)
 			currentOutputRefresh = g_nOutputRefresh;
 			currentOutputRotation = g_uOutputRotation;
 			currentHDROutput = g_bOutputHDREnabled;
+			currentHDRCapable = bOutputHDRCapable;
 			currentHDRForce = g_bForceHDRSupportDebug;
 
 #if HAVE_PIPEWIRE
