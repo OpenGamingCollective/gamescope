@@ -2859,6 +2859,7 @@ namespace gamescope
 
 		bool bHasKnownColorimetry = false;
 		bool bHasKnownHDRInfo = false;
+		sol::optional<float> ofScriptMaxCLL, ofScriptMaxFALL, ofScriptMinCLL;
 
 		m_Mutable.ValidDynamicRefreshRates.clear();
 		m_Mutable.fnDynamicModeGenerator = nullptr;
@@ -2955,9 +2956,10 @@ namespace gamescope
 					m_Mutable.HDR.bExposeHDRSupport = otHDRInfo->get_or( "supported", false );
 					m_Mutable.HDR.eOutputEncodingEOTF = otHDRInfo->get_or( "eotf", EOTF_Gamma22 );
 					m_Mutable.HDR.bContentDrivenHDR = otHDRInfo->get_or( "content_driven", false );
-					m_Mutable.HDR.uMaxContentLightLevel = nits_to_u16( otHDRInfo->get_or( "max_content_light_level", 400.0f ) );
-					m_Mutable.HDR.uMaxFrameAverageLuminance = nits_to_u16( otHDRInfo->get_or( "max_frame_average_luminance", 400.0f ) );
-					m_Mutable.HDR.uMinContentLightLevel = nits_to_u16_dark( otHDRInfo->get_or( "min_content_light_level", 0.1f ) );
+
+					ofScriptMaxCLL = (*otHDRInfo)["max_content_light_level"].get<sol::optional<float>>();
+					ofScriptMaxFALL = (*otHDRInfo)["max_frame_average_luminance"].get<sol::optional<float>>();
+					ofScriptMinCLL = (*otHDRInfo)["min_content_light_level"].get<sol::optional<float>>();
 
 					bHasKnownHDRInfo = true;
 				}
@@ -3023,7 +3025,7 @@ namespace gamescope
 		/////////////////////
 		// Parse HDR stuff.
 		/////////////////////
-		if ( !bHasKnownHDRInfo )
+		if ( !bHasKnownHDRInfo || !ofScriptMaxCLL || !ofScriptMaxFALL || !ofScriptMinCLL )
 		{
 			const di_cta_hdr_static_metadata_block *pHDRStaticMetadata = nullptr;
 			const di_cta_colorimetry_block *pColorimetry = nullptr;
@@ -3058,8 +3060,11 @@ namespace gamescope
 			if ( pColorimetry && pColorimetry->bt2020_rgb &&
 				 pHDRStaticMetadata && pHDRStaticMetadata->eotfs && pHDRStaticMetadata->eotfs->pq )
 			{
-				m_Mutable.HDR.bExposeHDRSupport = true;
-				m_Mutable.HDR.eOutputEncodingEOTF = EOTF_PQ;
+				if ( !bHasKnownHDRInfo )
+				{
+					m_Mutable.HDR.bExposeHDRSupport = true;
+					m_Mutable.HDR.eOutputEncodingEOTF = EOTF_PQ;
+				}
 				m_Mutable.HDR.uMaxContentLightLevel =
 					pHDRStaticMetadata->desired_content_max_luminance
 					? nits_to_u16( pHDRStaticMetadata->desired_content_max_luminance )
@@ -3073,11 +3078,19 @@ namespace gamescope
 					? nits_to_u16_dark( pHDRStaticMetadata->desired_content_min_luminance )
 					: nits_to_u16_dark( 0.0f );
 			}
-			else
+			else if ( !bHasKnownHDRInfo )
 			{
 				m_Mutable.HDR.bExposeHDRSupport = false;
 			}
 		}
+
+		// Script values win over the EDID field by field.
+		if ( ofScriptMaxCLL )
+			m_Mutable.HDR.uMaxContentLightLevel = nits_to_u16( *ofScriptMaxCLL );
+		if ( ofScriptMaxFALL )
+			m_Mutable.HDR.uMaxFrameAverageLuminance = nits_to_u16( *ofScriptMaxFALL );
+		if ( ofScriptMinCLL )
+			m_Mutable.HDR.uMinContentLightLevel = nits_to_u16_dark( *ofScriptMinCLL );
 
 		// Generate a default HDR10 infoframe.
 		if ( m_Mutable.HDR.IsHDR10() )
