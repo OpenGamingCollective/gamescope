@@ -1069,6 +1069,26 @@ static bool get_saved_mode(const char *description, saved_mode &mode_info)
 	return false;
 }
 
+// If GAMESCOPE_FAKE_OUTPUT_MM is set (WIDTHxHEIGHT in millimetres, e.g. 508x286), use it for
+// wl_output physical size instead of drmModeConnector mmWidth/mmHeight (panel/EDID).
+static void get_wl_output_phys_mm( int connector_mmW, int connector_mmH, int *outW, int *outH )
+{
+	*outW = connector_mmW;
+	*outH = connector_mmH;
+	const char *e = getenv( "GAMESCOPE_FAKE_OUTPUT_MM" );
+	if ( !e || !*e )
+		return;
+	int w = 0, h = 0;
+	if ( sscanf( e, "%dx%d", &w, &h ) != 2 || w <= 0 || h <= 0 )
+	{
+		drm_log.errorf( "GAMESCOPE_FAKE_OUTPUT_MM: invalid '%s' (expected WIDTHxHEIGHT in mm, e.g. 508x286)", e );
+		return;
+	}
+	drm_log.infof( "GAMESCOPE_FAKE_OUTPUT_MM: wl_output %dx%d mm (connector reported %dx%d mm)", w, h, connector_mmW, connector_mmH );
+	*outW = w;
+	*outH = h;
+}
+
 static GamescopeBroadcastRGBMode_t s_ExternalBroadcastRGBMode = GAMESCOPE_BROADCAST_RGB_MODE_AUTOMATIC;
 
 static bool setup_best_connector(struct drm_t *drm, bool force, bool initial)
@@ -1119,8 +1139,12 @@ static bool setup_best_connector(struct drm_t *drm, bool force, bool initial)
 		drm_log.infof("cannot find any connected connector!");
 		drm_unset_connector(drm);
 		drm_unset_mode(drm);
+		int physW = 0, physH = 0;
+		get_wl_output_phys_mm( 0, 0, &physW, &physH );
 		const struct wlserver_output_info wlserver_output_info = {
 			.description = "Virtual screen",
+			.phys_width = physW,
+			.phys_height = physH,
 		};
 		wlserver_lock();
 		wlserver_set_output_info(&wlserver_output_info);
@@ -1176,10 +1200,12 @@ static bool setup_best_connector(struct drm_t *drm, bool force, bool initial)
 	// Don't allow rollback of mode_id after connector change
 	drm->current.mode_id = drm->pending.mode_id;
 
+	int physW = 0, physH = 0;
+	get_wl_output_phys_mm( (int) best->GetModeConnector()->mmWidth, (int) best->GetModeConnector()->mmHeight, &physW, &physH );
 	const struct wlserver_output_info wlserver_output_info = {
 		.description = description,
-		.phys_width = (int) best->GetModeConnector()->mmWidth,
-		.phys_height = (int) best->GetModeConnector()->mmHeight,
+		.phys_width = physW,
+		.phys_height = physH,
 	};
 	wlserver_lock();
 	wlserver_set_output_info(&wlserver_output_info);
