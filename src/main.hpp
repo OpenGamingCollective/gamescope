@@ -32,8 +32,18 @@ extern bool g_bGrabbed;
 
 extern float g_mouseSensitivity;
 extern const char *g_sOutputName;
+extern const char *g_sLeaseConnectorName;
+extern const char *g_sIgnoreTouchDevice;
 extern bool g_bExternalForced;
 extern std::vector<uint32_t> g_customRefreshRates;
+
+// Number of companion apps currently holding the DRM lease socket connection.
+// Updated by the DRM lease socket thread. When > 0, wlserver drops touch
+// events originating from devices matching --ignore-touch-device, so the
+// companion exclusively owns them in Game Mode. When 0 (e.g. Desktop Mode
+// where the companion isn't running), gamescope forwards touch events
+// normally so the bottom touchscreen works in the Plasma session.
+extern std::atomic<int> g_nActiveLeaseClients;
 
 enum class GamescopeUpscaleFilter : uint32_t
 {
