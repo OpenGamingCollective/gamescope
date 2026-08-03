@@ -95,6 +95,8 @@ const struct option *gamescope_options = (struct option[]){
 	{ "generate-drm-mode", required_argument, nullptr, 0 },
 	{ "immediate-flips", no_argument, nullptr, 0 },
 	{ "framerate-limit", required_argument, nullptr, 0 },
+	{ "lease-connector", required_argument, nullptr, 0 },
+	{ "ignore-touch-device", required_argument, nullptr, 0 },
 
 	// openvr options
 #if HAVE_OPENVR
@@ -215,6 +217,8 @@ const char usage[] =
 	"  --force-panel-type             force gamescope to treat the display as either internal or external\n"
 	"  --force-windows-fullscreen     force windows inside of gamescope to be the size of the nested display (fullscreen)\n"
 	"  --cursor-scale-height          if specified, sets a base output height to linearly scale the cursor against.\n"
+	"  --lease-connector              if specified, marks a display connector for DRM leasing.\n"
+	"  --ignore-touch-device          if specified, disables touch input for a given display.\n"
 	"  --virtual-connector-strategy   Specifies how we should make virtual connectors.\n"
 	"  --hdr-enabled                  enable HDR output (needs Gamescope WSI layer enabled for support from clients)\n"
 	"                                 If this is not set, and there is a HDR client, it will be tonemapped SDR.\n"
@@ -781,6 +785,9 @@ int g_nPreferredOutputWidth = 0;
 int g_nPreferredOutputHeight = 0;
 bool g_bExposeWayland = false;
 const char *g_sOutputName = nullptr;
+const char *g_sLeaseConnectorName = nullptr;
+const char *g_sIgnoreTouchDevice = nullptr;
+std::atomic<int> g_nActiveLeaseClients = { 0 };
 bool g_bDebugLayers = false;
 bool g_bForceDisableColorMgmt = false;
 bool g_bRt = false;
@@ -937,6 +944,10 @@ int main(int argc, char **argv)
 					g_bAllowDeferredBackend = true;
 				} else if (strcmp(opt_name, "keep-alive") == 0) {
 					cv_shutdown_on_primary_child_death = false;
+				} else if (strcmp(opt_name, "lease-connector") == 0) {
+					g_sLeaseConnectorName = optarg;
+				} else if (strcmp(opt_name, "ignore-touch-device") == 0) {
+					g_sIgnoreTouchDevice = optarg;
 				} else if (strcmp(opt_name, "virtual-connector-strategy") == 0) {
 					for ( uint32_t i = 0; i < gamescope::VirtualConnectorStrategies::Count; i++ )
 					{
