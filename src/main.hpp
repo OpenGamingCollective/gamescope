@@ -80,3 +80,5 @@ extern bool g_bNoTouchPointerEmulation;
 extern uint32_t g_preferVendorID;
 extern uint32_t g_preferDeviceID;
 
+extern uint32_t g_outputMMSizeW;
+extern uint32_t g_outputMMSizeH;
