@@ -1069,24 +1069,21 @@ static bool get_saved_mode(const char *description, saved_mode &mode_info)
 	return false;
 }
 
-// If GAMESCOPE_FAKE_OUTPUT_MM is set (WIDTHxHEIGHT in millimetres, e.g. 508x286), use it for
+// If --fake-output-mm is set (WIDTHxHEIGHT in millimetres, e.g. 508x286), use it for
 // wl_output physical size instead of drmModeConnector mmWidth/mmHeight (panel/EDID).
 static void get_wl_output_phys_mm( int connector_mmW, int connector_mmH, int *outW, int *outH )
 {
 	*outW = connector_mmW;
 	*outH = connector_mmH;
-	const char *e = getenv( "GAMESCOPE_FAKE_OUTPUT_MM" );
-	if ( !e || !*e )
-		return;
-	int w = 0, h = 0;
-	if ( sscanf( e, "%dx%d", &w, &h ) != 2 || w <= 0 || h <= 0 )
+
+	if ( g_outputMMSizeW == 0 || g_outputMMSizeH == 0 )
 	{
-		drm_log.errorf( "GAMESCOPE_FAKE_OUTPUT_MM: invalid '%s' (expected WIDTHxHEIGHT in mm, e.g. 508x286)", e );
+		drm_log.debugf( "Gamescope fake output MM is unset" );
 		return;
 	}
-	drm_log.infof( "GAMESCOPE_FAKE_OUTPUT_MM: wl_output %dx%d mm (connector reported %dx%d mm)", w, h, connector_mmW, connector_mmH );
-	*outW = w;
-	*outH = h;
+	drm_log.infof( "Gamescope fake output MM: wl_output %ux%u mm (connector reported %dx%d mm)", g_outputMMSizeW, g_outputMMSizeH, connector_mmW, connector_mmH );
+	*outW = g_outputMMSizeW;
+	*outH = g_outputMMSizeH;
 }
 
 static GamescopeBroadcastRGBMode_t s_ExternalBroadcastRGBMode = GAMESCOPE_BROADCAST_RGB_MODE_AUTOMATIC;

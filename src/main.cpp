@@ -137,6 +137,7 @@ const struct option *gamescope_options = (struct option[]){
 	{ "composite-debug", no_argument, nullptr, 0 },
 	{ "disable-xres", no_argument, nullptr, 'x' },
 	{ "fade-out-duration", required_argument, nullptr, 0 },
+	{ "fake-output-mm", required_argument, nullptr, 0 },
 	{ "force-composition-rotation", no_argument, nullptr, 0 },
 	{ "force-orientation", required_argument, nullptr, 0 },
 	{ "force-external-orientation", required_argument, nullptr, 0 },
@@ -206,6 +207,7 @@ const char usage[] =
 	"  --touch-gestures               enable touch gestures for Steam menus\n"
 	"  --xwayland-count               create N xwayland servers\n"
 	"  --prefer-vk-device             prefer Vulkan device for compositing (ex: 1002:7300)\n"
+	"  --fake-output-mm               specify a fake output size for apps to scale by in millimeters (ex: 508x286)\n"
 	"  --force-composition-rotation   always rotate the output in the compositor instead of at scanout (autodetected otherwise)\n"
 	"  --force-orientation            rotate the internal display (left, right, normal, upsidedown)\n"
 	"  --force-external-orientation   rotate the external display (left, right, normal, upsidedown)\n"
@@ -337,6 +339,9 @@ float g_flMaxWindowScale = FLT_MAX;
 
 uint32_t g_preferVendorID = 0;
 uint32_t g_preferDeviceID = 0;
+
+uint32_t g_outputMMSizeW = 0;
+uint32_t g_outputMMSizeH = 0;
 
 pthread_t g_mainThread;
 
@@ -871,6 +876,12 @@ int main(int argc, char **argv)
 					gamescope::cv_touch_click_mode = (gamescope::TouchClickMode) parse_integer( optarg, opt_name );
 				} else if (strcmp(opt_name, "generate-drm-mode") == 0) {
 					g_eGamescopeModeGeneration = parse_gamescope_mode_generation( optarg );
+				} else if (strcmp(opt_name, "fake-output-mm") == 0) {
+					unsigned width;
+					unsigned height;
+					sscanf( optarg, "%ux%u", &width, &height );
+					g_outputMMSizeW = width;
+					g_outputMMSizeH = height;
 				} else if (strcmp(opt_name, "force-composition-rotation") == 0) {
 					g_bForceCompositionRotation = true;
 				} else if (strcmp(opt_name, "force-orientation") == 0) {
