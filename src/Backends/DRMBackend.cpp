@@ -1381,6 +1381,23 @@ namespace gamescope
 
 static gamescope::CDRMHeadlessConnector s_HeadlessConnector;
 
+// If --fake-output-mm is set (WIDTHxHEIGHT in millimetres, e.g. 508x286), use it for
+// wl_output physical size instead of drmModeConnector mmWidth/mmHeight (panel/EDID).
+static void get_wl_output_phys_mm( int connector_mmW, int connector_mmH, int *outW, int *outH )
+{
+	*outW = connector_mmW;
+	*outH = connector_mmH;
+
+	if ( g_outputMMSizeW == 0 || g_outputMMSizeH == 0 )
+	{
+		drm_log.debugf( "Gamescope fake output MM is unset" );
+		return;
+	}
+	drm_log.infof( "Gamescope fake output MM: wl_output %ux%u mm (connector reported %dx%d mm)", g_outputMMSizeW, g_outputMMSizeH, connector_mmW, connector_mmH );
+	*outW = g_outputMMSizeW;
+	*outH = g_outputMMSizeH;
+}
+
 static GamescopeBroadcastRGBMode_t s_ExternalBroadcastRGBMode = GAMESCOPE_BROADCAST_RGB_MODE_AUTOMATIC;
 
 static bool setup_best_connector(struct drm_t *drm, bool force, bool initial)
@@ -1437,8 +1454,12 @@ static bool setup_best_connector(struct drm_t *drm, bool force, bool initial)
 		s_HeadlessConnector.RebuildModes();
 
 		// Steam keys saved modes by the description, so get_last_display_mode reads this name back.
+		int physW = 0, physH = 0;
+		get_wl_output_phys_mm( 0, 0, &physW, &physH );
 		const struct wlserver_output_info wlserver_output_info = {
 			.description = k_pszVirtualScreenName,
+			.phys_width = physW,
+			.phys_height = physH,
 		};
 		wlserver_lock();
 		wlserver_set_output_info(&wlserver_output_info);
@@ -1495,10 +1516,12 @@ static bool setup_best_connector(struct drm_t *drm, bool force, bool initial)
 	// Don't allow rollback of mode_id after connector change
 	drm->current.mode_id = drm->pending.mode_id;
 
+	int physW = 0, physH = 0;
+	get_wl_output_phys_mm( (int) best->GetModeConnector()->mmWidth, (int) best->GetModeConnector()->mmHeight, &physW, &physH );
 	const struct wlserver_output_info wlserver_output_info = {
 		.description = description,
-		.phys_width = (int) best->GetModeConnector()->mmWidth,
-		.phys_height = (int) best->GetModeConnector()->mmHeight,
+		.phys_width = physW,
+		.phys_height = physH,
 	};
 	wlserver_lock();
 	wlserver_set_output_info(&wlserver_output_info);
