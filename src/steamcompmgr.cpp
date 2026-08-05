@@ -9916,6 +9916,9 @@ steamcompmgr_main(int argc, char **argv)
 	if ( g_BacklightWatcher.Init() )
 		g_SteamCompMgrWaiter.AddWaitable( &g_BacklightWatcher, EPOLLPRI );
 
+	if ( g_BacklightWatcher.Init() )
+		g_SteamCompMgrWaiter.AddWaitable( &g_BacklightWatcher, EPOLLPRI );
+
 	{
 		gamescope_xwayland_server_t *pServer = NULL;
 		for (size_t i = 0; (pServer = wlserver_get_xwayland_server(i)); i++)
