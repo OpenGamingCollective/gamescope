@@ -332,6 +332,7 @@ create_color_mgmt_luts(const gamescope_color_mgmt_t& newColorMgmt, gamescope_col
 		if (!outColorMgmtLuts[nInputEOTF].vk_lut3d)
 			outColorMgmtLuts[nInputEOTF].vk_lut3d = vulkan_create_3d_lut(s_nLutEdgeSize3d, s_nLutEdgeSize3d, s_nLutEdgeSize3d);
 
+		// FIXME: an override bypasses the backlight gain below, like night mode and looks.
 		if ( g_ColorMgmtLutsOverride[nInputEOTF].HasLuts() )
 		{
 			memcpy(g_ColorMgmtLuts[nInputEOTF].lut1d, g_ColorMgmtLutsOverride[nInputEOTF].lut1d, sizeof(g_ColorMgmtLutsOverride[nInputEOTF].lut1d));
@@ -417,6 +418,9 @@ create_color_mgmt_luts(const gamescope_color_mgmt_t& newColorMgmt, gamescope_col
 				buildPQColorimetry( &inputColorimetry, &colorMapping, displayColorimetry );
 			}
 
+			// Software backlight dim, only ever != 1 on PQ outputs.
+			flGain *= newColorMgmt.flBacklightLutGain;
+
 			calcColorTransform<s_nLutEdgeSize3d>( &g_tmpLut1d, s_nLutSize1d, &g_tmpLut3d, inputColorimetry, inputEOTF,
 				outputEncodingColorimetry, newColorMgmt.outputEncodingEOTF,
 				newColorMgmt.outputVirtualWhite, newColorMgmt.chromaticAdaptationMode,
@@ -458,6 +462,124 @@ gamescope::ConVar<bool> cv_hdr_content_driven{ "hdr_content_driven", false, "Onl
 bool g_bHDRItmEnable = false;
 int g_nCurrentRefreshRate_CachedValue = 0;
 
+// Follows the panel backlight over sysfs for panels that ignore it in PQ. steamcompmgr thread only.
+class CBacklightWatcher final : public gamescope::IWaitable
+{
+public:
+	~CBacklightWatcher()
+	{
+		if ( m_nFD >= 0 )
+			close( m_nFD );
+	}
+
+	bool Init()
+	{
+		// amdgpu registers the panel as amdgpu_bl*, prefer it over firmware shims, lowest name for a stable pick.
+		std::string sDevice;
+		std::error_code ec;
+		for ( const auto &entry : std::filesystem::directory_iterator( "/sys/class/backlight", ec ) )
+		{
+			std::string sName = entry.path().filename().string();
+			bool bPreferred = sName.starts_with( "amdgpu_bl" );
+			bool bHavePreferred = sDevice.starts_with( "amdgpu_bl" );
+			if ( sDevice.empty() || ( bPreferred && !bHavePreferred ) || ( bPreferred == bHavePreferred && sName < sDevice ) )
+				sDevice = sName;
+		}
+
+		if ( sDevice.empty() )
+			return false;
+
+		std::string sBase = "/sys/class/backlight/" + sDevice;
+		int nMaxFD = open( ( sBase + "/max_brightness" ).c_str(), O_RDONLY | O_CLOEXEC );
+		m_nMaxBrightness = ReadInt( nMaxFD );
+		if ( nMaxFD >= 0 )
+			close( nMaxFD );
+		if ( m_nMaxBrightness <= 0 )
+			return false;
+
+		m_nFD = open( ( sBase + "/actual_brightness" ).c_str(), O_RDONLY | O_CLOEXEC );
+		if ( m_nFD < 0 )
+			return false;
+
+		m_flFactor = ReadFactor();
+		// The first read may have failed and closed the fd.
+		if ( m_nFD < 0 )
+			return false;
+
+		xwm_log.debugf( "Software backlight: watching %s, max brightness %d", sDevice.c_str(), m_nMaxBrightness );
+		return true;
+	}
+
+	int GetFD() final { return m_nFD; }
+	void OnPollPri() final
+	{
+		float flFactor = ReadFactor();
+		if ( flFactor == m_flFactor )
+			return;
+
+		m_flFactor = flFactor;
+
+		gamescope::IBackendConnector *pConn = GetBackend()->GetCurrentConnector();
+		if ( pConn && pConn->GetHDRInfo().bSoftwareBacklight )
+			hasRepaint = true;
+	}
+
+	// Drop the fd instead of the base class abort.
+	void OnPollHangUp() final
+	{
+		Disable();
+	}
+
+	float GetFactor() const { return m_flFactor; }
+
+private:
+	// Closing also removes the fd from the epoll set, the repaint restores unity gain.
+	void Disable()
+	{
+		if ( m_nFD < 0 )
+			return;
+
+		close( m_nFD );
+		m_nFD = -1;
+		m_flFactor = 1.0f;
+		hasRepaint = true;
+	}
+
+	static long ReadInt( int nFD )
+	{
+		if ( nFD < 0 )
+			return -1;
+
+		char szBuf[32];
+		lseek( nFD, 0, SEEK_SET );
+		ssize_t nRead = read( nFD, szBuf, sizeof( szBuf ) - 1 );
+		if ( nRead <= 0 )
+			return -1;
+		szBuf[nRead] = '\0';
+		return strtol( szBuf, nullptr, 10 );
+	}
+
+	// Reads actual_brightness, which also consumes the pending poll event.
+	float ReadFactor()
+	{
+		long nValue = ReadInt( m_nFD );
+		if ( nValue < 0 )
+		{
+			// A dead node reports EPOLLERR forever, drop it before it spins us.
+			Disable();
+			return m_flFactor;
+		}
+
+		return std::clamp( (float)nValue / (float)m_nMaxBrightness, 0.0f, 1.0f );
+	}
+
+	int m_nFD = -1;
+	int m_nMaxBrightness = -1;
+	float m_flFactor = 1.0f;
+};
+
+static CBacklightWatcher g_BacklightWatcher;
+
 static void
 update_color_mgmt()
 {
@@ -471,6 +593,11 @@ update_color_mgmt()
 
 	g_ColorMgmt.pending.flInternalDisplayBrightness =
 		GetBackend()->GetCurrentConnector()->GetHDRInfo().uMaxContentLightLevel;
+
+	// Panels that ignore the hardware backlight in PQ get it baked into the LUTs instead, never fully to black.
+	g_ColorMgmt.pending.flBacklightLutGain =
+		( GetBackend()->GetCurrentConnector()->GetHDRInfo().bSoftwareBacklight && g_ColorMgmt.pending.enabled && g_ColorMgmt.pending.outputEncodingEOTF == EOTF_PQ )
+			? std::max( g_BacklightWatcher.GetFactor(), 0.01f ) : 1.0f;
 
 #ifdef COLOR_MGMT_MICROBENCH
 	struct timespec t0, t1;
@@ -8718,6 +8845,9 @@ steamcompmgr_main(int argc, char **argv)
 	g_SteamCompMgrWaiter.AddWaitable( &GetVBlankTimer() );
 	g_SteamCompMgrWaiter.AddWaitable( &g_FPSLimitVRRTimer );
 	GetVBlankTimer().ArmNextVBlank( true );
+
+	if ( g_BacklightWatcher.Init() )
+		g_SteamCompMgrWaiter.AddWaitable( &g_BacklightWatcher, EPOLLPRI );
 
 	{
 		gamescope_xwayland_server_t *pServer = NULL;
