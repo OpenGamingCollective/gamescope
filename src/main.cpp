@@ -216,6 +216,8 @@ const char usage[] =
 	"  --force-panel-type             force gamescope to treat the display as either internal or external\n"
 	"  --force-windows-fullscreen     force windows inside of gamescope to be the size of the nested display (fullscreen)\n"
 	"  --cursor-scale-height          if specified, sets a base output height to linearly scale the cursor against.\n"
+	"  --lease-connector              if specified, marks a display connector for DRM leasing.\n"
+	"  --ignore-touch-device          if specified, disables touch input for a given display.\n"
 	"  --virtual-connector-strategy   Specifies how we should make virtual connectors.\n"
 	"  --hdr-enabled                  enable HDR output (needs Gamescope WSI layer enabled for support from clients)\n"
 	"                                 If this is not set, and there is a HDR client, it will be tonemapped SDR.\n"
