@@ -183,8 +183,6 @@ using namespace std::literals;
 
 struct drm_t g_DRM = {};
 
-bool drm_supports_color_mgmt(struct drm_t *drm);
-
 // Flip handler thread control. Keep the thread object global so we
 // can join it during shutdown instead of detaching and risking the
 // thread still using the DRM fd while we clean up.
@@ -467,12 +465,6 @@ namespace gamescope
 
 		bool SupportsHDR() const override
 		{
-			// Don't enable HDR output when the DRM color management pipeline
-			// is unavailable (e.g. RDNA 3.5 lacks AMD_PLANE_BLEND_TF).
-			// Without color_mgmt the display enters HDR mode but the DRM
-			// path does identity, causing washed-out SDR content.
-			if ( !drm_supports_color_mgmt( &g_DRM ) )
-				return false;
 			return SupportsHDR10() || SupportsHDRG22();
 		}
 
@@ -603,6 +595,7 @@ extern std::string g_reshade_effect;
 #endif
 
 bool drm_update_color_mgmt(struct drm_t *drm);
+bool drm_supports_color_mgmt(struct drm_t *drm);
 bool drm_set_connector( struct drm_t *drm, gamescope::CDRMConnector *conn );
 
 struct drm_color_ctm2 {
@@ -3470,8 +3463,7 @@ int drm_prepare( struct drm_t *drm, bool async, const struct FrameInfo_t *frameI
 
 	bool bSinglePlane = frameInfo->layerCount < 2 && cv_drm_single_plane_optimizations;
 
-	bool bColorMgmtSupported = drm_supports_color_mgmt( &g_DRM );
-	if ( bColorMgmtSupported && frameInfo->applyOutputColorMgmt )
+	if ( drm_supports_color_mgmt( &g_DRM ) && frameInfo->applyOutputColorMgmt )
 	{
 		if ( !cv_drm_debug_disable_output_tf && !bSinglePlane )
 		{
