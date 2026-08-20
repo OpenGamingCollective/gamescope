@@ -1633,6 +1633,34 @@ bool init_drm(struct drm_t *drm, int width, int height, int refresh)
 				drm_log.infof( "lease-connector: selected %s plane %u for CRTC %u",
 					pszBestKind, uPlaneId, uCRTCId );
 
+				// The plane we are about to lease can still be carrying the kernel
+				// fbcon framebuffer from boot. Once the plane is leased, gamescope's
+				// normal liftoff path skips it and cannot clean it up. On handhelds
+				// with shared primary planes this leaves the fbcon plane stacked above
+				// gamescope on the main connector, making the physical screen appear
+				// black even though gamescope is rendering. Detach the plane before
+				// transferring it into the lease so the lessor starts with only its
+				// own scanout planes active.
+				drmModePlane *pLeasePlane = drmModeGetPlane( drm->fd, uPlaneId );
+				if ( pLeasePlane )
+				{
+					if ( pLeasePlane->crtc_id != 0 || pLeasePlane->fb_id != 0 )
+					{
+						int nPlaneDisable = drmModeSetPlane( drm->fd, uPlaneId, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 );
+						if ( nPlaneDisable != 0 )
+						{
+							drm_log.errorf( "lease-connector: failed to detach plane %u before lease: %s",
+								uPlaneId, strerror( errno ) );
+						}
+						else
+						{
+							drm_log.infof( "lease-connector: detached plane %u from CRTC %u before lease",
+								uPlaneId, pLeasePlane->crtc_id );
+						}
+					}
+					drmModeFreePlane( pLeasePlane );
+				}
+
 				uint32_t objects[3];
 				int nObjects = 0;
 				objects[nObjects++] = uConnectorId;
