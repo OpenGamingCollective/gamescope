@@ -686,6 +686,75 @@ static gamescope::CDRMCRTC *find_crtc_for_connector( struct drm_t *drm, gamescop
 	return nullptr;
 }
 
+static bool drm_detach_lease_resources(
+	struct drm_t *drm,
+	gamescope::CDRMConnector *pLeaseConnector,
+	gamescope::CDRMCRTC *pLeaseCRTC,
+	gamescope::CDRMPlane *pLeasePlane )
+{
+	// A lease must not split an existing pipeline across lessor and lessee.
+	// Atomically disable every CRTC currently connected to a leased object,
+	// along with all connectors and planes using those CRTCs.
+	std::unordered_set< uint64_t > affectedCRTCIds = {
+		pLeaseCRTC->GetObjectId(),
+		pLeaseConnector->GetProperties().CRTC_ID->GetCurrentValue(),
+		pLeasePlane->GetProperties().CRTC_ID->GetCurrentValue(),
+	};
+	affectedCRTCIds.erase( 0 );
+
+	drmModeAtomicReq *pRequest = drmModeAtomicAlloc();
+	if ( !pRequest )
+		return false;
+	defer( drmModeAtomicFree( pRequest ) );
+
+	std::vector< gamescope::CDRMAtomicProperty * > changedProperties;
+	bool bValid = true;
+	auto SetProperty = [&]( gamescope::CDRMAtomicProperty &property, uint64_t uValue )
+	{
+		if ( property.SetPendingValue( pRequest, uValue, true ) < 0 )
+			bValid = false;
+		else
+			changedProperties.push_back( &property );
+	};
+
+	for ( auto &iter : drm->connectors )
+	{
+		gamescope::CDRMConnector *pConnector = &iter.second;
+		if ( affectedCRTCIds.contains( pConnector->GetProperties().CRTC_ID->GetCurrentValue() ) )
+			SetProperty( *pConnector->GetProperties().CRTC_ID, 0 );
+	}
+
+	for ( const std::unique_ptr< gamescope::CDRMPlane > &pPlane : drm->planes )
+	{
+		if ( affectedCRTCIds.contains( pPlane->GetProperties().CRTC_ID->GetCurrentValue() ) )
+		{
+			SetProperty( *pPlane->GetProperties().FB_ID, 0 );
+			SetProperty( *pPlane->GetProperties().CRTC_ID, 0 );
+		}
+	}
+
+	for ( const std::unique_ptr< gamescope::CDRMCRTC > &pCRTC : drm->crtcs )
+	{
+		if ( affectedCRTCIds.contains( pCRTC->GetObjectId() ) )
+		{
+			SetProperty( *pCRTC->GetProperties().ACTIVE, 0 );
+			SetProperty( *pCRTC->GetProperties().MODE_ID, 0 );
+		}
+	}
+
+	if ( !bValid || drmModeAtomicCommit( drm->fd, pRequest, DRM_MODE_ATOMIC_ALLOW_MODESET, nullptr ) != 0 )
+	{
+		for ( gamescope::CDRMAtomicProperty *pProperty : changedProperties )
+			pProperty->Rollback();
+		return false;
+	}
+
+	for ( gamescope::CDRMAtomicProperty *pProperty : changedProperties )
+		pProperty->OnCommit();
+
+	return true;
+}
+
 static bool get_plane_formats( struct drm_t *drm, gamescope::CDRMPlane *pPlane, struct wlr_drm_format_set *pFormatSet )
 {
 	for ( uint32_t i = 0; i < pPlane->GetModePlane()->count_formats; i++ )
@@ -1599,6 +1668,7 @@ bool init_drm(struct drm_t *drm, int width, int height, int refresh)
 				//      — costs the main pool one primary slot.
 				const uint32_t uLeaseCrtcMask = pLeaseCRTC->GetCRTCMask();
 				uint32_t    uPlaneId    = 0;
+				gamescope::CDRMPlane *pLeasePlane = nullptr;
 				int         nBestScore  = -1;
 				const char *pszBestKind = nullptr;
 				for ( auto &pPlane : drm->planes )
@@ -1618,6 +1688,7 @@ bool init_drm(struct drm_t *drm, int width, int height, int refresh)
 					{
 						nBestScore  = nScore;
 						uPlaneId    = pPlane->GetObjectId();
+						pLeasePlane = pPlane.get();
 						pszBestKind = pszKind;
 						if ( nScore == 1 )
 							break; // exclusive primary — best we can do
@@ -1628,38 +1699,14 @@ bool init_drm(struct drm_t *drm, int width, int height, int refresh)
 				{
 					drm_log.errorf( "lease-connector: no usable plane found for CRTC %u", uCRTCId );
 				}
+				else if ( !drm_detach_lease_resources( drm, pLeaseConnector, pLeaseCRTC, pLeasePlane ) )
+				{
+					drm_log.errorf_errno( "lease-connector: failed to prepare resources for lease" );
+				}
 				else
 				{
 				drm_log.infof( "lease-connector: selected %s plane %u for CRTC %u",
 					pszBestKind, uPlaneId, uCRTCId );
-
-				// The plane we are about to lease can still be carrying the kernel
-				// fbcon framebuffer from boot. Once the plane is leased, gamescope's
-				// normal liftoff path skips it and cannot clean it up. On handhelds
-				// with shared primary planes this leaves the fbcon plane stacked above
-				// gamescope on the main connector, making the physical screen appear
-				// black even though gamescope is rendering. Detach the plane before
-				// transferring it into the lease so the lessor starts with only its
-				// own scanout planes active.
-				drmModePlane *pLeasePlane = drmModeGetPlane( drm->fd, uPlaneId );
-				if ( pLeasePlane )
-				{
-					if ( pLeasePlane->crtc_id != 0 || pLeasePlane->fb_id != 0 )
-					{
-						int nPlaneDisable = drmModeSetPlane( drm->fd, uPlaneId, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 );
-						if ( nPlaneDisable != 0 )
-						{
-							drm_log.errorf( "lease-connector: failed to detach plane %u before lease: %s",
-								uPlaneId, strerror( errno ) );
-						}
-						else
-						{
-							drm_log.infof( "lease-connector: detached plane %u from CRTC %u before lease",
-								uPlaneId, pLeasePlane->crtc_id );
-						}
-					}
-					drmModeFreePlane( pLeasePlane );
-				}
 
 				uint32_t objects[3];
 				int nObjects = 0;
