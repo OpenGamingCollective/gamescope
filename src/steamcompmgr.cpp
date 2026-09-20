@@ -10006,8 +10006,14 @@ steamcompmgr_main(int argc, char **argv)
 
 		// Timer vblanks are scheduled with the same lead as the ready check,
 		// so they always count as flip-ready.
+		// FIFO clients already wait for compositor progress. Applying the
+		// uncapped mailbox/immediate scheduling gate to them adds another
+		// refresh interval to callbacks and can starve a paced swapchain.
+		const global_focus_t *pVRRFocus = GetCurrentFocus();
+		const bool bVRRFifo = pVRRFocus && pVRRFocus->HeldCommits[HELD_COMMIT_BASE] &&
+			pVRRFocus->HeldCommits[HELD_COMMIT_BASE]->fifo;
 		bool bVRRCanFlip = bVRR;
-		if ( bVRRCanFlip && cv_adaptive_sync_uncapped && !bIsVBlankFromTimer )
+		if ( bVRRCanFlip && cv_adaptive_sync_uncapped && !bVRRFifo && !bIsVBlankFromTimer )
 			bVRRCanFlip = GetVBlankTimer().IsVRRFlipReady();
 
 		if ( bVRR )
