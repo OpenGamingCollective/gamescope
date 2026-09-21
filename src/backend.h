@@ -321,6 +321,7 @@ namespace gamescope
 
         virtual bool Init() = 0;
         virtual bool PostInit() = 0;
+        virtual bool SupportsMeasuredPresentationTiming() const { return false; }
         virtual std::span<const char *const> GetInstanceExtensions() const = 0;
         virtual std::span<const char *const> GetDeviceExtensions( VkPhysicalDevice pVkPhysicalDevice ) const = 0;
         virtual VkImageLayout GetPresentLayout() const = 0;

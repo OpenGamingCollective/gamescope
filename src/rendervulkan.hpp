@@ -17,6 +17,7 @@
 
 #include "gamescope_shared.h"
 #include "backend.h"
+#include "PresentationTiming.h"
 
 #include "shaders/descriptor_set_constants.h"
 
@@ -309,6 +310,7 @@ struct FrameInfo_t
 	struct Layer_t
 	{
 		gamescope::Rc<CVulkanTexture> tex;
+		gamescope::PresentationTimings presentationTimings;
 		int zpos;
 
 		vec2_t offset;

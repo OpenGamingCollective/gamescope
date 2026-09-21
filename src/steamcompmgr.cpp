@@ -2471,6 +2471,8 @@ paint_cached_base_layer(const gamescope::Rc<commit_t>& commit, const BaseLayerIn
 
 	layer->opacity = bOverrideOpacity ? flOpacityScale : base.opacity * flOpacityScale;
 
+	if ( commit->presentationTiming )
+		layer->presentationTimings.push_back( commit->presentationTiming );
 	layer->tex = commit->GetTexture( base.eUpscaleFilter, base.eUpscaleScaler, layer->colorspace );
 	layer->filter = base.filter;
 	if ( layer->tex == commit->vulkanTex )
@@ -2583,6 +2585,8 @@ paint_window_commit( const gamescope::Rc<commit_t> &lastCommit, steamcompmgr_win
 
 	layer->filter = ( flags & PaintWindowFlag::NoFilter ) ? GamescopeUpscaleFilter::LINEAR : frameInfo->eUpscaleFilter;
 
+	if ( lastCommit->presentationTiming )
+		layer->presentationTimings.push_back( lastCommit->presentationTiming );
 	layer->tex = lastCommit->GetTexture( layer->filter, frameInfo->eUpscaleScaler, layer->colorspace );
 
 	if ( flags & PaintWindowFlag::NoScale )
@@ -3485,6 +3489,10 @@ paint_all( global_focus_t *pFocus, bool async )
 	{
 		return;
 	}
+
+	wlserver_lock();
+	wlserver_send_completed_presentation_timings();
+	wlserver_unlock();
 
 	std::optional<gamescope::GamescopeScreenshotInfo> oScreenshotInfo =
 		gamescope::CScreenshotManager::Get().ProcessPendingScreenshot();
@@ -8346,6 +8354,8 @@ void update_wayland_res(CommitDoneList_t *doneCommits, steamcompmgr_win_t *w, Re
 		reslistentry.present_id,
 		reslistentry.desired_present_time,
 		reslistentry.fifo );
+	if ( newCommit )
+		newCommit->presentationTiming = std::move( reslistentry.pPresentationTiming );
 
 
 	if ( newCommit == nullptr )
@@ -10392,6 +10402,7 @@ steamcompmgr_main(int argc, char **argv)
 			gamescope_xwayland_server_t *server = NULL;
 			for (size_t i = 0; (server = wlserver_get_xwayland_server(i)); i++)
 				handle_presented_xwayland( server->ctx.get() );
+			wlserver_send_completed_presentation_timings();
 			wlserver_unlock();
 		}
 

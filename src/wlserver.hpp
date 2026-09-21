@@ -23,6 +23,7 @@
 #include "vulkan_include.h"
 
 #include "steamcompmgr_shared.hpp"
+#include "PresentationTiming.h"
 
 #if HAVE_DRM
 #define HAVE_SESSION 1
@@ -50,6 +51,7 @@ struct ResListEntry_t {
 	uint64_t desired_present_time;
 	std::shared_ptr<gamescope::CAcquireTimelinePoint> pAcquirePoint;
 	std::shared_ptr<gamescope::CReleaseTimelinePoint> pReleasePoint;
+	std::shared_ptr<gamescope::PresentationTiming> pPresentationTiming;
 };
 
 struct wlserver_content_override;
@@ -325,6 +327,7 @@ void wlserver_presentation_feedback_presented( struct wlr_surface *surface, std:
 void wlserver_presentation_feedback_discard( struct wlr_surface *surface, std::vector<struct wl_resource*>& presentation_feedbacks );
 
 void wlserver_past_present_timing( struct wlr_surface *surface, uint32_t present_id, uint64_t desired_present_time, uint64_t actual_present_time, uint64_t earliest_present_time, uint64_t present_margin );
+void wlserver_send_completed_presentation_timings();
 void wlserver_refresh_cycle( struct wlr_surface *surface, uint64_t refresh_cycle );
 
 void wlserver_app_presented( uint32_t app_id, uint64_t frametime_ns );

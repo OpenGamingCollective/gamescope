@@ -6,6 +6,7 @@
 #include <optional>
 #include <vector>
 #include "vulkan_include.h"
+#include "PresentationTiming.h"
 
 
 #include "wlr_begin.hpp"
@@ -56,6 +57,7 @@ struct wlserver_wl_surface_info
 	std::optional<uint32_t> present_id = std::nullopt;
 	uint64_t desired_present_time = 0;
 
+	std::vector<std::weak_ptr<gamescope::PresentationTiming>> output_timings;
 	uint64_t last_refresh_cycle = 0;
 };
 
