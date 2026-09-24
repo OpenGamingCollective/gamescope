@@ -8,7 +8,7 @@ endforeach
 
 gamescope_tests = executable(
 	'gamescope_tests',
-	unittest_src + ['test_convar.cpp', 'test_focus_placement.cpp', 'test_mangoapp_config.cpp', 'test_mangoapp_control.cpp', 'test_process.cpp', 'test_upscale.cpp', 'test_utils_parsers.cpp', 'test_utils_string.cpp', 'test_vrclient_detect.cpp'],
+	unittest_src + ['test_presentation_timing.cpp', 'test_convar.cpp', 'test_focus_placement.cpp', 'test_mangoapp_config.cpp', 'test_mangoapp_control.cpp', 'test_process.cpp', 'test_upscale.cpp', 'test_utils_parsers.cpp', 'test_utils_string.cpp', 'test_vrclient_detect.cpp'],
 	include_directories: [srcdir, sol2_include],
 	dependencies: [catch2_dep, luajit_dep, cap_dep, drm_dep, glm_dep, wlroots_dep],
 	cpp_args: gamescope_cpp_args,
@@ -25,3 +25,5 @@ test('utils/parsers', gamescope_tests, args: ['[parsers]'])
 test('utils/process', gamescope_tests, args: ['[process]'], depends: [reaper_test_helper])
 test('utils/string', gamescope_tests, args: ['[string]'])
 test('vrclient_detect', gamescope_tests, args: ['[vrclient_detect]'])
+
+test('presentation_timing', gamescope_tests, args: ['[presentation_timing]'])

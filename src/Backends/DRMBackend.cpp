@@ -584,6 +584,7 @@ extern bool g_bDebugLayers;
 struct DRMPresentCtx
 {
 	uint64_t ulPendingFlipCount = 0;
+	std::atomic<uint64_t> ulActualPresentTime{ 0 };
 };
 
 extern gamescope::ConVar<bool> cv_composite_force;
@@ -889,6 +890,7 @@ static void page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsi
 		g_DRM.m_QueuedFbIds.clear();
 	}
 
+	pCtx->ulActualPresentTime.store( vblanktime );
 	g_DRM.uPendingFlipCount--;
 	g_DRM.uPendingFlipCount.notify_all();
 
@@ -4171,6 +4173,8 @@ namespace gamescope
 			return vulkan_has_drm_props();
 		}
 
+		bool SupportsMeasuredPresentationTiming() const override { return true; }
+
 		virtual int Present( const FrameInfo_t *pFrameInfo, bool bAsync )
 		{
 			static uint64_t s_ulLastTime = get_time_in_nanos();
@@ -4341,6 +4345,13 @@ namespace gamescope
 
 			vulkan_wait( *oCompositeResult, true );
 
+			gamescope::PresentationTimings compositeTimings;
+			for ( int i = 0; i < compositeFrameInfo.layers.count(); ++i )
+			{
+				const auto &timings = compositeFrameInfo.layers.get( i ).presentationTimings;
+				compositeTimings.insert( compositeTimings.end(), timings.begin(), timings.end() );
+			}
+
 			FrameInfo_t presentCompFrameInfo = {};
 			presentCompFrameInfo.allowVRR = pFrameInfo->allowVRR;
 			presentCompFrameInfo.outputEncodingEOTF = pFrameInfo->outputEncodingEOTF;
@@ -4356,6 +4367,7 @@ namespace gamescope
 				baseLayer->zpos = g_zposBase;
 
 				baseLayer->tex = vulkan_get_last_output_image( false, false );
+				baseLayer->presentationTimings = compositeTimings;
 				baseLayer->applyColorMgmt = false;
 
 				baseLayer->filter = GamescopeUpscaleFilter::NEAREST;
@@ -4382,6 +4394,7 @@ namespace gamescope
 					overlayLayer->zpos = g_zposOverlay;
 
 					overlayLayer->tex = vulkan_get_last_output_image( true, bDefer );
+					overlayLayer->presentationTimings = bDefer ? m_PreviousOverlayTimings : compositeTimings;
 					overlayLayer->applyColorMgmt = g_ColorMgmt.pending.enabled;
 
 					overlayLayer->filter = GamescopeUpscaleFilter::NEAREST;
@@ -4422,6 +4435,8 @@ namespace gamescope
 				m_bWasPartialCompositing = true;
 			}
 
+			m_PreviousOverlayTimings = bNeedsFullComposite ? gamescope::PresentationTimings{} : std::move( compositeTimings );
+
 			int ret = drm_prepare( &g_DRM, bAsync, &presentCompFrameInfo );
 
 			// Happens when we're VT-switched away
@@ -4440,6 +4455,8 @@ namespace gamescope
 
 				// Try once again to in case we need to fall back to another mode.
 				ret = drm_prepare( &g_DRM, bAsync, &compositeFrameInfo );
+				if ( ret == 0 )
+					presentCompFrameInfo = compositeFrameInfo;
 
 				// Happens when we're VT-switched away
 				if ( ret == -EACCES )
@@ -4461,7 +4478,7 @@ namespace gamescope
 				}
 			}
 
-			return Commit( &compositeFrameInfo );
+			return Commit( &presentCompFrameInfo );
 		}
 
 		virtual void DirtyState( bool bForce, bool bForceModeset ) override
@@ -4627,6 +4644,7 @@ namespace gamescope
 
 		uint32_t m_uNextPresentCtx = 0;
 		DRMPresentCtx m_PresentCtxs[3];
+		gamescope::PresentationTimings m_PreviousOverlayTimings;
 
 		bool SupportsColorManagement() const
 		{
@@ -4661,6 +4679,7 @@ namespace gamescope
 
 			uint32_t uCurrentPresentCtx = m_uNextPresentCtx;
 			m_uNextPresentCtx = ( m_uNextPresentCtx + 1 ) % 3;
+			m_PresentCtxs[uCurrentPresentCtx].ulActualPresentTime.store( 0 );
 			m_PresentCtxs[uCurrentPresentCtx].ulPendingFlipCount = GetCurrentConnector()->PresentationFeedback().m_uQueuedPresents;
 
 			drm_log.debugf("flip commit %" PRIu64, (uint64_t)GetCurrentConnector()->PresentationFeedback().m_uQueuedPresents);
@@ -4744,6 +4763,10 @@ namespace gamescope
 				// Wait for bPendingFlip to change from true -> false.
 				drm->uPendingFlipCount.wait( uNewPendingFlipCount );
 				assert( drm->uPendingFlipCount == 0 );
+				uint64_t actual = m_PresentCtxs[uCurrentPresentCtx].ulActualPresentTime.load();
+				for ( int i = 0; i < pFrameInfo->layers.count(); ++i )
+					for ( const auto &timing : pFrameInfo->layers.get( i ).presentationTimings )
+						timing->Presented( actual );
 			}
 
 			return ret;

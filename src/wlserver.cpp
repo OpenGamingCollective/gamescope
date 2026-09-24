@@ -138,6 +138,8 @@ std::vector<ResListEntry_t>& gamescope_xwayland_server_t::retrieve_commits()
 
 gamescope::ConVar<bool> cv_drm_debug_syncobj_force_wait_on_commit( "drm_debug_syncobj_force_wait_on_commit", false, "Force a wait on DRM sync objects before committing buffers" );
 
+static std::set<wlserver_wl_surface_info *> g_PendingOutputTimings;
+
 ResListEntry_t PrepareCommit( struct wlr_surface *surf, struct wlr_buffer *buf )
 {
 	auto wl_surf = get_wl_surface_info( surf );
@@ -172,6 +174,16 @@ ResListEntry_t PrepareCommit( struct wlr_surface *surf, struct wlr_buffer *buf )
 		std::move( pAcquirePoint ),
 		std::move( pReleasePoint )
 	};
+	if ( newEntry.present_id && GetBackend()->SupportsMeasuredPresentationTiming() )
+	{
+		newEntry.pPresentationTiming = std::make_shared<gamescope::PresentationTiming>(
+			*newEntry.present_id, newEntry.desired_present_time );
+		wl_surf->output_timings.emplace_back( newEntry.pPresentationTiming );
+		g_PendingOutputTimings.insert( wl_surf );
+		// Keep early wp_presentation notifications, but do not pass a predicted
+		// time to VK_GOOGLE_display_timing as an actual display timestamp.
+		newEntry.present_id = std::nullopt;
+	}
 	wl_surf->present_id = std::nullopt;
 	wl_surf->desired_present_time = 0;
 	wl_surf->pending_presentation_feedbacks.clear();
@@ -777,6 +789,7 @@ static void handle_wl_surface_destroy( struct wl_listener *l, void *data )
 	wl_list_remove( &surf->commit.link );
 	wl_list_remove( &surf->destroy.link );
 
+	g_PendingOutputTimings.erase( surf );
 	delete surf;
 }
 
@@ -1805,6 +1818,31 @@ void wlserver_past_present_timing( struct wlr_surface *surface, uint32_t present
 			earliest_present_time & 0xffffffff,
 			present_margin >> 32,
 			present_margin & 0xffffffff);
+	}
+}
+
+void wlserver_send_completed_presentation_timings()
+{
+	assert( wlserver_is_lock_held() );
+	for ( auto surface = g_PendingOutputTimings.begin(); surface != g_PendingOutputTimings.end(); )
+	{
+		auto *info = *surface;
+		std::erase_if( info->output_timings, [info]( const auto &weak ) {
+			auto timing = weak.lock();
+			if ( !timing )
+				return true; // The commit was dropped without being displayed.
+			uint64_t actual = timing->actualPresentTime.load();
+			if ( !actual )
+				return false;
+			// No earlier opportunity or spare margin was measured.
+			wlserver_past_present_timing( info->wlr, timing->presentID,
+				timing->desiredPresentTime, actual, actual, 0 );
+			return true;
+		} );
+		if ( info->output_timings.empty() )
+			surface = g_PendingOutputTimings.erase( surface );
+		else
+			++surface;
 	}
 }
 
