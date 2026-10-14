@@ -257,16 +257,16 @@ extern bool g_bCurrentBasePlaneIsFifo;
 extern uint32_t g_uCurrentBasePlaneAppID;
 extern gamescope::ConVar<bool> cv_mangoapp_use_output_timing;
 
-void mangoapp_output_update( uint64_t vblanktime )
+void mangoapp_output_update( uint64_t vblanktime, uint64_t ulBasePlaneCommitID, uint32_t uBasePlaneAppID )
 {
 	static uint64_t s_uLastBasePlaneCommitID = 0;
-	if ( s_uLastBasePlaneCommitID != g_uCurrentBasePlaneCommitID )
+	if ( s_uLastBasePlaneCommitID != ulBasePlaneCommitID )
 	{
 		static uint64_t s_uLastBasePlaneUpdateVBlankTime = vblanktime;
         uint64_t last_frametime = s_uLastBasePlaneUpdateVBlankTime;
         uint64_t frametime = vblanktime - last_frametime;
 		s_uLastBasePlaneUpdateVBlankTime = vblanktime;
-		s_uLastBasePlaneCommitID = g_uCurrentBasePlaneCommitID;
+		s_uLastBasePlaneCommitID = ulBasePlaneCommitID;
         if ( last_frametime > vblanktime )
             return;
 
@@ -275,8 +275,13 @@ void mangoapp_output_update( uint64_t vblanktime )
         if ( cv_mangoapp_use_output_timing )
         {
             wlserver_lock();
-            wlserver_app_presented( g_uCurrentBasePlaneAppID, frametime );
+            wlserver_app_presented( uBasePlaneAppID, frametime );
             wlserver_unlock();
         }
 	}
+}
+
+void mangoapp_output_update( uint64_t vblanktime )
+{
+	mangoapp_output_update( vblanktime, g_uCurrentBasePlaneCommitID, g_uCurrentBasePlaneAppID );
 }

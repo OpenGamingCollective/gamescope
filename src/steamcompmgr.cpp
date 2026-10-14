@@ -2489,6 +2489,9 @@ paint_cached_base_layer(const gamescope::Rc<commit_t>& commit, const BaseLayerIn
 	if ( !layer )
 		return;
 
+	frameInfo->ulBasePlaneCommitID = commit->commitID;
+	frameInfo->uBasePlaneAppID = commit->appID;
+
 	layer->opacity = bOverrideOpacity ? flOpacityScale : base.opacity * flOpacityScale;
 
 	layer->tex = commit->GetTexture( base.eUpscaleFilter, base.eUpscaleScaler, layer->colorspace );
@@ -2811,6 +2814,9 @@ paint_window(global_focus_t *pFocus, steamcompmgr_win_t *w, steamcompmgr_win_t *
 		pFocus->ulBasePlaneCommitID = lastCommit->commitID;
 		pFocus->uBasePlaneAppID = lastCommit->appID;
 		pFocus->bBasePlaneIsFifo = lastCommit->IsPerfOverlayFIFO();
+
+		frameInfo->ulBasePlaneCommitID = pFocus->ulBasePlaneCommitID;
+		frameInfo->uBasePlaneAppID = pFocus->uBasePlaneAppID;
 	}
 }
 
@@ -3158,6 +3164,8 @@ paint_all( global_focus_t *pFocus, bool async )
 	}
 
 	struct FrameInfo_t frameInfo = {};
+	frameInfo.ulBasePlaneCommitID = pFocus->ulBasePlaneCommitID;
+	frameInfo.uBasePlaneAppID = pFocus->uBasePlaneAppID;
 	frameInfo.applyOutputColorMgmt = g_ColorMgmt.pending.enabled;
 	frameInfo.outputEncodingEOTF = g_ColorMgmt.pending.outputEncodingEOTF;
 	frameInfo.allowVRR = cv_adaptive_sync;
