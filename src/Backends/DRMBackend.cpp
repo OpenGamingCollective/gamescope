@@ -584,6 +584,8 @@ extern bool g_bDebugLayers;
 struct DRMPresentCtx
 {
 	uint64_t ulPendingFlipCount = 0;
+	uint64_t ulBasePlaneCommitID = 0;
+	uint32_t uBasePlaneAppID = 0;
 };
 
 extern gamescope::ConVar<bool> cv_composite_force;
@@ -867,7 +869,7 @@ static bool have_overlay_planes(struct drm_t *drm)
 	return false;
 }
 
-extern void mangoapp_output_update( uint64_t vblanktime );
+extern void mangoapp_output_update( uint64_t vblanktime, uint64_t ulBasePlaneCommitID, uint32_t uBasePlaneAppID );
 extern std::atomic<uint32_t> g_uScanoutRefreshmHz;
 static void page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec, unsigned int crtc_id, void *data)
 {
@@ -919,10 +921,13 @@ static void page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsi
 		g_DRM.m_QueuedFbIds.clear();
 	}
 
+	const uint64_t ulCapturedBasePlaneCommitID = pCtx->ulBasePlaneCommitID;
+	const uint32_t uCapturedBasePlaneAppID = pCtx->uBasePlaneAppID;
+
 	g_DRM.uPendingFlipCount--;
 	g_DRM.uPendingFlipCount.notify_all();
 
-	mangoapp_output_update( vblanktime );
+	mangoapp_output_update( vblanktime, ulCapturedBasePlaneCommitID, uCapturedBasePlaneAppID );
 
 	// Nudge so that steamcompmgr releases commits.
 	nudge_steamcompmgr();
@@ -4595,6 +4600,8 @@ namespace gamescope
 			FrameInfo_t presentCompFrameInfo = {};
 			presentCompFrameInfo.allowVRR = pFrameInfo->allowVRR;
 			presentCompFrameInfo.outputEncodingEOTF = pFrameInfo->outputEncodingEOTF;
+			presentCompFrameInfo.ulBasePlaneCommitID = pFrameInfo->ulBasePlaneCommitID;
+			presentCompFrameInfo.uBasePlaneAppID = pFrameInfo->uBasePlaneAppID;
 
 			if ( bNeedsFullComposite )
 			{
@@ -4917,6 +4924,8 @@ namespace gamescope
 			uint32_t uCurrentPresentCtx = m_uNextPresentCtx;
 			m_uNextPresentCtx = ( m_uNextPresentCtx + 1 ) % 3;
 			m_PresentCtxs[uCurrentPresentCtx].ulPendingFlipCount = g_DRM.pConnector->PresentationFeedback().m_uQueuedPresents;
+			m_PresentCtxs[uCurrentPresentCtx].ulBasePlaneCommitID = pFrameInfo->ulBasePlaneCommitID;
+			m_PresentCtxs[uCurrentPresentCtx].uBasePlaneAppID = pFrameInfo->uBasePlaneAppID;
 
 			drm_log.debugf("flip commit %" PRIu64, (uint64_t)g_DRM.pConnector->PresentationFeedback().m_uQueuedPresents);
 			gpuvis_trace_printf( "flip commit %" PRIu64, (uint64_t)g_DRM.pConnector->PresentationFeedback().m_uQueuedPresents );
