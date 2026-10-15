@@ -35,9 +35,8 @@ test('vrclient_detect', gamescope_tests, args: ['[vrclient_detect]'])
 if get_option('enable_gamescope_wsi_layer')
 	present_timing_layer_tests = executable(
 		'present_timing_layer_tests',
-		['test_present_timing.cpp', 'test_present_timing_layer.cpp', protocols_client_src, swapchain_server_header],
+		['test_present_timing.cpp', protocols_client_src, swapchain_server_header],
 		dependencies: [catch2_dep, vkroots_dep, vulkan_dep, dep_xcb, dep_x11, dep_x11_xcb, glm_dep, wayland_client, wayland_server],
 	)
 	test('present_timing', present_timing_layer_tests, args: ['[present_timing]'])
-	test('present_timing_layer', present_timing_layer_tests, args: ['[present_timing_layer]'])
 endif
